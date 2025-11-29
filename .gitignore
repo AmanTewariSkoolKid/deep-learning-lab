@@ -45,3 +45,6 @@ logs/
 # Environment / lock files (optional)
 poetry.lock
 Pipfile.lock
+# Scripts and exports (ignore directories and their contents)
+scripts/
+exports/

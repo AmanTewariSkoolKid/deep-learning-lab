@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs & temp
+*.log
+*.tmp
+*.cache/
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Model artifacts
+*.h5
+*.keras
+*.ckpt
+
+# Data (allow small sample data; ignore large derived sets)
+*/data/raw/
+*/data/tmp/
+
+# Reports build output (if later automated)
+build/
+dist/
+
+# Images generated during runs
+*/outputs/
+
+# TensorBoard
+logs/
+
+# Environment / lock files (optional)
+poetry.lock
+Pipfile.lock

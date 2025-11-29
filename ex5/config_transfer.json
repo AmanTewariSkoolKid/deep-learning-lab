@@ -1,0 +1,51 @@
+{
+  "task": "image_classification_transfer_learning",
+  "dataset": {
+    "path": "data/flowers/",
+    "format": "directory",
+    "image_size": [224, 224],
+    "validation_split": 0.2,
+    "seed": 42,
+    "class_mode": "categorical",
+    "download_url": "https://storage.googleapis.com/download.tensorflow.org/example_images/flower_photos.tgz"
+  },
+  "model": {
+    "base_architecture": "EfficientNetB0",
+    "weights": "imagenet",
+    "include_top": false,
+    "trainable_strategy": "freeze_then_finetune",
+    "fine_tune_unfreeze_layers": 20
+  },
+  "head": {
+    "global_pool": "avg",
+    "dense_units": [256],
+    "dropout": 0.3,
+    "activation": "relu",
+    "output_classes": 5,
+    "output_activation": "softmax"
+  },
+  "training": {
+    "feature_extraction_epochs": 5,
+    "fine_tune_epochs": 10,
+    "batch_size": 32,
+    "optimizer": "adam",
+    "learning_rates": {"feature_extraction": 0.001, "fine_tune": 0.0001},
+    "early_stopping": {"monitor": "val_loss", "patience": 3},
+    "checkpoint": {"save_best_only": true, "monitor": "val_accuracy"}
+  },
+  "augmentation": {
+    "enabled": true,
+    "horizontal_flip": true,
+    "rotation_range": 15,
+    "zoom_range": 0.1,
+    "width_shift_range": 0.1,
+    "height_shift_range": 0.1
+  },
+  "metrics": ["accuracy", "precision", "recall", "f1"],
+  "outputs": {
+    "confusion_matrix": true,
+    "classification_report": true,
+    "plots": ["accuracy_curve", "loss_curve"],
+    "export_saved_model": "models/efficientnet_flowers"
+  }
+}

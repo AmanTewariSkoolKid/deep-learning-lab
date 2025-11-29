@@ -1,0 +1,2 @@
+nbconvert[webpdf]
+PyPDF2

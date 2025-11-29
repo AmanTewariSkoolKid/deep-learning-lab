@@ -1,0 +1,243 @@
+{
+  "title": "Object Detection Lab (Local): R-CNN → Fast R-CNN on Open Images Bus & Truck",
+  "audience": "CS students with prior CNN classification experience",
+  "context": {
+    "summary": "Run locally with the Kaggle Open-Images-Bus-Trucks subset placed in ./data; implement R-CNN (region proposals + deep features + per-class classification + bbox regression) and refactor to Fast R-CNN with shared conv + RoI Pooling.",
+    "key_concepts": [
+      "Open Images uses normalized [0,1] bounding boxes and class MIDs (resolve via class-descriptions.csv).",
+      "R-CNN trains classifiers on features from cropped proposals and separate bounding-box regressors.",
+      "Fast R-CNN shares convolution per image and pools per-RoI to fixed size."
+    ]
+  },
+  "dataset": {
+    "name": "Open-Images-Bus-Trucks (local)",
+    "base_dir": "data",
+    "expected_contents": [
+      "data/images/",
+      "data/annotations/ (Open Images CSVs, e.g., boxes or subset CSVs)",
+      "data/class-descriptions.csv"
+    ],
+    "classes": ["Bus", "Truck"],
+    "annotation_format": {
+      "type": "OpenImagesCSV",
+      "columns": [
+        "ImageID", "Source", "LabelName", "Confidence",
+        "XMin", "XMax", "YMin", "YMax",
+        "IsOccluded", "IsTruncated", "IsGroupOf", "IsDepiction", "IsInside"
+      ],
+      "coord_system": "normalized [0,1] with origin top-left"
+    },
+    "class_mapping": {
+      "source_file": "data/class-descriptions.csv",
+      "resolve": [
+        {"display_name": "Bus", "label_name_mid": "<resolve_from_CSV>"},
+        {"display_name": "Truck", "label_name_mid": "<resolve_from_CSV>"}
+      ],
+      "filter_by_mid": true
+    },
+    "splits": {
+      "strategy": "stratified by class on images",
+      "ratios": {"train": 0.8, "val": 0.1, "test": 0.1},
+      "output": "data/splits/{train,val,test}.txt"
+    }
+  },
+  "paths": {
+    "images_dir": "data/images",
+    "annotations_csv": "data/annotations/annotations.csv",
+    "class_descriptions": "data/class-descriptions.csv",
+    "proposals_dir": "data/proposals",
+    "processed_dir": "data/processed",
+    "interim_dir": "data/interim",
+    "models_dir": "models",
+    "logs_dir": "logs",
+    "reports_dir": "reports",
+    "figures_dir": "figures",
+    "splits_dir": "data/splits"
+  },
+  "config": {
+    "file": "config/config.yml",
+    "fields": {
+      "seed": 42,
+      "device": "cuda_if_available",
+      "num_workers": 4,
+      "classes": ["Bus", "Truck"],
+      "image_size": 224,
+      "roi_pool_size": [7, 7],
+      "train": {
+        "batch_size": 8,
+        "lr": 0.0005,
+        "epochs": 10
+      },
+      "eval": {"iou_threshold": 0.5}
+    }
+  },
+  "tools": {
+    "frameworks": ["PyTorch"],
+    "pretrained_backbones": ["VGG16", "AlexNet"],
+    "environment": ["CPU acceptable for R-CNN demo; GPU recommended for Fast R-CNN fine-tuning"],
+    "quality": ["pre-commit", "black", "isort", "flake8"]
+  },
+  "deliverables": {
+    "code": [
+      "scripts/prepare_openimages.py",
+      "scripts/selective_search.py",
+      "src/data/openimages_loader.py",
+      "src/models/fast_rcnn_head.py",
+      "src/trainers/fast_rcnn_trainer.py",
+      "notebooks/rcnn_minimal.ipynb"
+    ],
+    "project_ops": [
+      "requirements.txt",
+      "Makefile",
+      ".pre-commit-config.yaml",
+      "config/config.yml",
+      ".env.example",
+      "tests/test_boxes.py",
+      "Dockerfile"
+    ],
+    "report": "reports/report.md",
+    "figures": [
+      "figures/pipeline.png",
+      "figures/roi_pooling.png",
+      "figures/pr_curves.png"
+    ]
+  },
+  "software_engineering": {
+    "structure": "Cookiecutter-style layout with data/, notebooks/, src/, models/, reports/, and Makefile at root",
+    "lint_format": {
+      "tools": ["black", "isort", "flake8"],
+      "pre_commit": true,
+      "config_file": ".pre-commit-config.yaml"
+    },
+    "docs": {
+      "docstrings": "Google style docstrings for functions, classes, and modules",
+      "how_to_build": "README with setup/run steps, plus report.md for results"
+    },
+    "testing": {
+      "framework": "pytest",
+      "paths": ["tests/"],
+      "minimum": ["IoU unit tests", "bbox encode/decode tests"]
+    },
+    "ci_cd": {
+      "option": "GitHub Actions",
+      "goals": ["lint", "unit-tests", "smoke-train on tiny split"]
+    },
+    "containers": {
+      "docker": true,
+      "targets": ["docker-build", "docker-run"]
+    },
+    "reproducibility": {
+      "seed_everything": true,
+      "requirements": "requirements.txt",
+      "pin_versions": true,
+      "log_config": "config/config.yml and logs/"
+    }
+  },
+  "tasks": [
+    {
+      "id": "T0",
+      "name": "Local data prep (Open Images CSV)",
+      "instructions": "Use data/class-descriptions.csv to resolve Bus/Truck MIDs; filter annotations CSV to those MIDs; convert normalized coords to pixels using per-image width/height; write per-image label files and optional COCO export.",
+      "steps": [
+        "Load annotations CSV from data/annotations/.",
+        "Filter rows where LabelName is in {MID(Bus), MID(Truck)}.",
+        "Convert XMin/XMax/YMin/YMax from [0,1] to pixels; clip to image bounds.",
+        "Drop boxes with IsGroupOf=1 or IsDepiction=1 if cleaner data is desired.",
+        "Write data/interim/annotations_oi_filtered.csv and splits."
+      ],
+      "artifacts": [
+        "data/interim/annotations_oi_filtered.csv",
+        "data/splits/{train,val,test}.txt"
+      ],
+      "acceptance_criteria": [
+        "Only Bus/Truck remain; all boxes are pixel-coordinates and in-bounds.",
+        "Class mapping verified against class-descriptions.csv.",
+        "Stratified image-level splits created."
+      ]
+    },
+    {
+      "id": "T1",
+      "name": "Concept map",
+      "instructions": "Diagram R-CNN pipeline and Fast R-CNN with shared conv + RoI Pooling.",
+      "acceptance_criteria": [
+        "Shows bbox regression refining proposals toward ground-truth.",
+        "Contrasts per-RoI conv vs shared conv."
+      ]
+    },
+    {
+      "id": "T2",
+      "name": "R-CNN minimal prototype",
+      "instructions": "Generate Selective Search proposals; crop/resize proposals; extract deep features; train linear classifiers (Bus/Truck) and regressors; evaluate IoU ≥ 0.5.",
+      "steps": [
+        "Generate ~2K proposals/image and cache under data/proposals/.",
+        "Extract fc features with pretrained backbone per proposal.",
+        "Train linear heads and L2 bbox regressors.",
+        "Report precision/recall and visualize detections."
+      ],
+      "acceptance_criteria": [
+        "Qualitative pre/post-regression improvements.",
+        "Basic per-class PR on validation."
+      ]
+    },
+    {
+      "id": "T3",
+      "name": "Fast R-CNN head with RoI Pooling",
+      "instructions": "Compute shared conv map per image; project RoIs; RoI Pooling to 7×7; FC → softmax + bbox regression; compare speed vs R-CNN.",
+      "acceptance_criteria": [
+        "Faster inference than R-CNN on same split.",
+        "Comparable or better PR to R-CNN baseline."
+      ]
+    },
+    {
+      "id": "T4",
+      "name": "Cost analysis",
+      "instructions": "State R-CNN inference cost and explain how shared conv reduces cost in Fast R-CNN.",
+      "acceptance_criteria": [
+        "R-CNN: ProposalTime + (#RoIs × Conv + Classif + Regr).",
+        "Fast R-CNN: single Conv + per-RoI pooling/head."
+      ]
+    },
+    {
+      "id": "T5",
+      "name": "Short report",
+      "instructions": "Summarize dataset, CSV parsing, pipeline design, metrics, timing, and failure cases with figures.",
+      "acceptance_criteria": [
+        "Documents normalized coordinates, MIDs, and filtering policy.",
+        "Includes PR curves and qualitative detections."
+      ]
+    }
+  ],
+  "makefile": {
+    "targets": {
+      "setup": "python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt && pre-commit install",
+      "data": "python scripts/prepare_openimages.py --base_dir data --classes Bus Truck",
+      "proposals": "python scripts/selective_search.py --images data/images --out data/proposals",
+      "train_rcnn": "python -m src.trainers.rcnn_trainer --config config/config.yml",
+      "train_fastrcnn": "python -m src.trainers.fast_rcnn_trainer --config config/config.yml",
+      "eval": "python -m src.eval.detect_eval --config config/config.yml",
+      "lint": "pre-commit run --all-files",
+      "test": "pytest -q",
+      "docker-build": "docker build -t rcnn-lab .",
+      "docker-run": "docker run --gpus all -v $PWD:/work -it rcnn-lab"
+    }
+  },
+  "quality": {
+    "pre_commit_config": ".pre-commit-config.yaml with hooks: isort, black, flake8",
+    "style": "Google-style docstrings and PEP 8 compliance",
+    "testing": "pytest for unit tests; smoke test on tiny split in CI"
+  },
+  "evaluation_metrics": [
+    "IoU for localization quality",
+    "Per-class precision/recall; mAP conceptually",
+    "Average inference time per image"
+  ],
+  "references": [
+    {"type": "dataset", "title": "Kaggle: Open-Images-Bus-Trucks"},
+    {"type": "spec", "title": "Open Images V7 download/format"},
+    {"type": "spec", "title": "Open Images class-descriptions.csv"},
+    {"type": "lecture_notes", "title": "R-CNN and Fast R-CNN lab reading"},
+    {"type": "proj_template", "title": "Cookiecutter Data Science"},
+    {"type": "style_guide", "title": "Google Python Style Guide"},
+    {"type": "tooling", "title": "pre-commit with black/isort/flake8"}
+  ]
+}

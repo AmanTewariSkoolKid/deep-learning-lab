@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import List
 
 from traitlets.config import Config
+import json
+import subprocess
 
 # Lazy imports inside functions for clearer error messages
 
@@ -26,6 +28,36 @@ def find_notebooks(source: Path, pattern: str) -> List[Path]:
     # Exclude checkpoint directories
     notebooks = [p for p in notebooks if ".ipynb_checkpoints" not in p.parts]
     return sorted(notebooks)
+
+
+def is_empty_or_invalid(nb_path: Path) -> bool:
+    try:
+        raw = nb_path.read_text(encoding="utf-8").strip()
+        if not raw:
+            return True
+        data = json.loads(raw)
+        cells = data.get("cells", [])
+        return len(cells) == 0
+    except Exception:
+        return True
+
+
+def ensure_playwright_browser() -> None:
+    try:
+        import playwright  # type: ignore  # noqa: F401
+    except ImportError:
+        return  # Not installed; caller will report
+    # Check if chromium is installed; attempt install silently if missing
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+        with sync_playwright() as p:
+            # If accessing chromium fails we attempt install
+            _ = p.chromium
+    except Exception:
+        try:
+            subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+        except Exception:
+            pass
 
 
 def export_webpdf(nb_path: Path, out_dir: Path) -> Path:
@@ -38,6 +70,7 @@ def export_webpdf(nb_path: Path, out_dir: Path) -> Path:
 
     c = Config()
     c.WebPDFExporter.allow_chromium_download = True  # auto-download Chromium if needed
+    ensure_playwright_browser()
     exporter = WebPDFExporter(config=c)
     exporter.exclude_input = False
     pdf_data, _ = exporter.from_filename(str(nb_path))
@@ -81,13 +114,16 @@ def main(argv: List[str] | None = None) -> int:
 
     exported = []
     for nb in notebooks:
+        if is_empty_or_invalid(nb):
+            print(f"[SKIP] {nb} (empty or invalid JSON)")
+            continue
         print(f"[EXPORT] {nb}")
         try:
             pdf_path = export_webpdf(nb, export_dir)
             exported.append(pdf_path)
         except Exception as e:  # noqa: BLE001
             print(f"[ERROR] Failed webpdf export for {nb}: {e}")
-            print("Attempting LaTeX PDF fallback (requires TeX distribution)...")
+            print("Attempting LaTeX PDF fallback (requires TeX + pandoc)...")
             try:
                 from nbconvert import PDFExporter  # type: ignore
 
@@ -102,6 +138,7 @@ def main(argv: List[str] | None = None) -> int:
 
     if not exported:
         print("No PDFs exported; aborting merge.")
+        print("Dependency guidance:\n - Install webpdf: pip install nbconvert[webpdf] playwright\n - Install browser: python -m playwright install chromium\n - OR LaTeX route (Windows Chocolatey): choco install pandoc miktex -y")
         return 2
 
     merged_path = export_dir / args.combined_pdf
